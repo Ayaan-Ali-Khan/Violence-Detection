@@ -1,1 +1,21 @@
-.venv
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Raw datasets and generated caches
+data/raw/*
+cache/*
+
+# Experiment outputs
+model_checkpoints/
+runs/
+*.pt
+*.pth
+*.onnx
+
+# Local configuration
+.env
+.DS_Store
+.ipynb_checkpoints/
