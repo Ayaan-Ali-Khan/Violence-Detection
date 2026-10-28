@@ -1,21 +1,52 @@
-# Python
+# Python bytecode and environments
 __pycache__/
 *.py[cod]
+*.so
 .venv/
 venv/
+env/
+.env
+.env.*
+!.env.example
 
-# Raw datasets and generated caches
-data/raw/*
-cache/*
+# Test, lint, and type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# Experiment outputs
-model_checkpoints/
-runs/
+# Build and package artifacts
+build/
+dist/
+*.egg-info/
+
+# Notebook artifacts
+.ipynb_checkpoints/
+
+# Data: keep manifests trackable, do not commit downloaded source videos
+data/raw/
+
+# Generated model inputs, detection/tracking caches, and weights
+cache/
+data/cache/
+*.npy
+*.npz
 *.pt
 *.pth
+*.ckpt
 *.onnx
+model_checkpoints/*
+!model_checkpoints/.gitkeep
 
-# Local configuration
-.env
+# Experiment output directories and tracker logs
+runs/
+wandb/
+lightning_logs/
+tensorboard/
+experiments/*
+!experiments/README.md
+
+# Editor and OS files
+.vscode/
 .DS_Store
-.ipynb_checkpoints/
