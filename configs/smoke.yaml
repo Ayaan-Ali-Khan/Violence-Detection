@@ -1,0 +1,8 @@
+seed: 42
+name: kaggle-smoke-test
+project: violence-detection
+tags:
+  - smoke-test
+  - kaggle
+tracking_backend: wandb
+output_dir: /kaggle/working/violence-detection-output

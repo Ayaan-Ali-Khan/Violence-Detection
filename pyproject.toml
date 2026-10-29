@@ -26,6 +26,10 @@ video = [
     "pytorchvideo>=0.1.5",
     "ultralytics>=8.3,<9.0",
 ]
+tracking = [
+    "wandb>=0.18",
+    "tensorboard>=2.18",
+]
 dev = [
     "black>=24.10,<27.0",
     "ruff>=0.11,<1.0",

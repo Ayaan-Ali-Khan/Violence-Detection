@@ -1,0 +1,12 @@
+# Kaggle provides a CUDA-enabled PyTorch build. Install this file after
+# `pip install -e . --no-deps` so its PyTorch build is left intact.
+numpy>=1.26,<2.0
+pandas>=2.2,<3.0
+opencv-python-headless>=4.10,<5.0
+scikit-learn>=1.5,<2.0
+matplotlib>=3.8,<4.0
+seaborn>=0.13,<1.0
+tqdm>=4.66,<5.0
+PyYAML>=6.0,<7.0
+wandb>=0.18
+tensorboard>=2.18

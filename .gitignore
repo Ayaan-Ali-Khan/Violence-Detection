@@ -42,6 +42,7 @@ model_checkpoints/*
 # Experiment output directories and tracker logs
 runs/
 wandb/
+*.wandb
 lightning_logs/
 tensorboard/
 experiments/*
