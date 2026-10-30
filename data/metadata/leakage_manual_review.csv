@@ -1,0 +1,4 @@
+dataset_a,path_a,dataset_b,path_b,review_status,decision,notes
+rwf2000,data/raw/rwf2000/train/NonFight/QCgEbCBH_0.avi,rwf2000,data/raw/rwf2000/val/NonFight/egQvmVL2_0.avi,reviewed,same_source_video,Five sampled frames show the same CCTV recording and aligned motion.
+rwf2000,data/raw/rwf2000/train/NonFight/qrBAhb8K_0.avi,rwf2000,data/raw/rwf2000/val/NonFight/LtfqEsod_0.avi,reviewed,same_source_video,Sampled frames show the same CCTV recording with matching timestamps and scene motion.
+rwf2000,data/raw/rwf2000/train/NonFight/tXk2yvmq_0.avi,rwf2000,data/raw/rwf2000/val/NonFight/LtfqEsod_0.avi,reviewed,same_source_video,Sampled frames show the same CCTV recording with matching timestamps and scene motion.
