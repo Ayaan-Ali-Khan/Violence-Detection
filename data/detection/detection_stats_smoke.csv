@@ -1,0 +1,3 @@
+dataset,split,label_name,clips,frames_processed,person_detections,mean_people_per_frame,median_people_per_frame,p95_people_per_frame,no_detection_frames,no_detection_frame_rate,clips_with_no_detections,no_detection_clip_rate,track_instances,mean_track_instances_per_clip
+rwf2000,test,all,2,300,1870,6.233333333333333,7.0,10.050000000000011,0,0.0,0,0.0,59,29.5
+rwf2000,test,violent,2,300,1870,6.233333333333333,7.0,10.050000000000011,0,0.0,0,0.0,59,29.5

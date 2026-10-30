@@ -25,6 +25,7 @@ video = [
     "torchvision>=0.20",
     "pytorchvideo>=0.1.5",
     "ultralytics>=8.3,<9.0",
+    "lap>=0.5.12",
 ]
 tracking = [
     "wandb>=0.18",

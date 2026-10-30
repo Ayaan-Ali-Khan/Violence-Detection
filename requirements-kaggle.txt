@@ -3,3 +3,5 @@
 # replace Kaggle's NumPy, OpenCV, or PyTorch builds.
 wandb>=0.18
 tensorboard>=2.18
+ultralytics>=8.3,<9.0
+lap>=0.5.12

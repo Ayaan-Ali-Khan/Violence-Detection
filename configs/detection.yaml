@@ -1,0 +1,16 @@
+# Person detection and short-term tracking defaults for Phase 2.
+weights: yolo11n.pt
+tracker: configs/bytetrack.yaml
+imgsz: 640
+confidence: 0.10
+iou: 0.70
+device: auto
+frame_stride: 1
+
+benchmark:
+  weights:
+    - yolo11n.pt
+    - yolo11s.pt
+  clips_per_class_per_dataset: 2
+  frames_per_clip: 3
+  warmup_frames: 3
