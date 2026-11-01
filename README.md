@@ -15,3 +15,8 @@ The proposed system consists of three primary tasks:
 2. Object Tracking: Once people are detected, an object-tracking algorithm assigns a unique ID to each individual and maintains that identity across consecutive frames. This enables the system to monitor the movement and interactions of individuals over time.
 
 3. Action Recognition: The system continuously analyzes the movements and interactions of tracked individuals to recognize actions associated with violence, particularly fighting incidents. When potentially violent activity is detected, the system can generate an alert for further investigation or intervention.
+
+## Implementation notes
+
+- [Detection and tracking](docs/detection_tracking.md)
+- [Interaction-pair selection and crop generation](docs/interaction_crops.md)

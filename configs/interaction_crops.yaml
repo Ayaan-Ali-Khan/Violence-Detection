@@ -1,0 +1,7 @@
+# Selected from the RWF-2000 validation-only sweep and 50-clip overlay review.
+tau: 2.0
+min_pair_frames: 3
+group_tau_multiplier: 1.5
+margin: 0.10
+smoothing_window: 5
+max_gap: 3
