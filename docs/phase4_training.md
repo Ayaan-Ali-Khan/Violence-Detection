@@ -45,9 +45,11 @@ confusion matrix, with per-clip predictions.
 
 - `configs/preprocess.yaml`: versioned X3D-S/M frame, resolution, normalization,
   and augmentation profiles with distinct input tags.
-- `src/violence_detection/data/preprocess.py` and `cache_tensors.py`: bounded
-  decoding, deterministic sampling, RGB uint8 preprocessing, and resumable
-  checksummed mmap tensor caches.
+- `src/violence_detection/data/preprocess.py` and
+  `src/violence_detection/data/cache_tensors.py`: bounded decoding,
+  deterministic sampling, RGB uint8 preprocessing, and resumable checksummed
+  mmap tensor caches. `scripts/cache_tensors.py` is the CLI entry point used by
+  the Kaggle notebook.
 - `scripts/verify_tensor_cache.py`: cache completeness, layout, labels, checksum,
   and disk-size report.
 - `src/violence_detection/data/dataset.py` and `augment.py`: mmap-backed full,
