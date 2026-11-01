@@ -1,0 +1,30 @@
+version: 1
+dataset: rwf2000
+color: RGB
+storage_dtype: uint8
+temporal_sampling: uniform_two_candidates_per_segment
+resize_interpolation: area
+models:
+  x3d_s:
+    input_tag: rwf_full_f16_s160_v1
+    num_frames: 16
+    cache_frames: 32
+    # Match the earlier X3D notebook: cache at round(160 * 1.1), then
+    # resize to the 160px model input on the GPU.
+    resolution: 176
+    input_size: 160
+    mean: [0.45, 0.45, 0.45]
+    std: [0.225, 0.225, 0.225]
+  x3d_m:
+    input_tag: rwf_full_f16_s160_x3dm_v1
+    num_frames: 16
+    cache_frames: 32
+    resolution: 176
+    input_size: 160
+    mean: [0.45, 0.45, 0.45]
+    std: [0.225, 0.225, 0.225]
+augmentation:
+  horizontal_flip_probability: 0.5
+  brightness_delta: 0.1
+  temporal_shift_candidates: 2
+  spatial_crop: false

@@ -5,3 +5,6 @@ wandb>=0.18
 tensorboard>=2.18
 ultralytics>=8.3,<9.0
 lap>=0.5.12
+pytorchvideo>=0.1.5
+fvcore>=0.1.5.post20221221
+iopath>=0.1.10
