@@ -53,8 +53,10 @@ def resolve_crop_cache_path(
     )
 
 
-def _decode_worker(job: tuple[int, str, dict[str, Any], bool, str | None]):
-    row_index, video_path, spec_data, include_crop, crop_path = job
+def _decode_worker(
+    job: tuple[int, str, dict[str, Any], bool, str | None, str | None],
+):
+    row_index, video_path, spec_data, include_crop, crop_path, crop_settings_hash = job
     try:
         spec = PreprocessSpec(
             **{
@@ -64,6 +66,7 @@ def _decode_worker(job: tuple[int, str, dict[str, Any], bool, str | None]):
             }
         )
         crop_boxes = None
+        crop_fallback_mask = None
         if include_crop:
             if crop_path is None or not Path(crop_path).is_file():
                 raise FileNotFoundError(
@@ -71,11 +74,24 @@ def _decode_worker(job: tuple[int, str, dict[str, Any], bool, str | None]):
                 )
             with np.load(crop_path, allow_pickle=False) as archive:
                 crop_boxes = archive["crop_boxes_xyxy"]
+                if "fallback_mask" not in archive:
+                    raise ValueError(
+                        f"Crop cache has no fallback mask for audit: {crop_path}"
+                    )
+                crop_fallback_mask = archive["fallback_mask"].astype(bool)
+                if crop_settings_hash is not None:
+                    crop_metadata = json.loads(str(archive["metadata"].item()))
+                    if crop_metadata.get("settings_sha256") != crop_settings_hash:
+                        raise ValueError(
+                            "interaction crop cache settings do not match the selected "
+                            f"tau/margin profile: {crop_path}"
+                        )
         decoded = decode_video(
             video_path,
             spec,
             include_crop=include_crop,
             crop_boxes_xyxy=crop_boxes,
+            crop_fallback_mask=crop_fallback_mask,
         )
         return row_index, decoded, None
     except Exception as exc:  # Return errors to the parent so other clips continue.
@@ -105,6 +121,7 @@ def process_split(
     data_root: Path,
     mode: str,
     crop_cache_dir: Path | None,
+    crop_settings_hash: str | None = None,
     workers: int,
     max_clips: int | None,
     force: bool,
@@ -149,6 +166,8 @@ def process_split(
         "views": view_names,
         "view_mode": mode,
     }
+    if crop_settings_hash is not None:
+        expected_meta["crop_settings_sha256"] = crop_settings_hash
     if force:
         shutil.rmtree(split_dir)
         split_dir.mkdir(parents=True)
@@ -182,6 +201,37 @@ def process_split(
         else:
             checksums = _initialize_array(checksum_path, (len(rows),), np.dtype("S64"))
         checksum_arrays[view] = checksums
+
+    crop_found_mask = crop_found_sha256 = None
+    if "crop" in view_names:
+        crop_found_path = split_dir / "crop_found_mask.npy"
+        crop_found_hash_path = split_dir / "crop_found_sha256.npy"
+        if crop_found_path.exists():
+            crop_found_mask = np.load(crop_found_path, mmap_mode="r+")
+            if (
+                crop_found_mask.shape != (len(rows), spec.cache_frames)
+                or crop_found_mask.dtype != np.bool_
+            ):
+                raise ValueError(
+                    f"Unexpected crop-found mask layout at {crop_found_path}"
+                )
+        else:
+            crop_found_mask = _initialize_array(
+                crop_found_path, (len(rows), spec.cache_frames), np.dtype(np.bool_)
+            )
+        if crop_found_hash_path.exists():
+            crop_found_sha256 = np.load(crop_found_hash_path, mmap_mode="r+")
+            if (
+                crop_found_sha256.shape != (len(rows),)
+                or crop_found_sha256.dtype.kind != "S"
+            ):
+                raise ValueError(
+                    f"Unexpected crop-found checksum layout at {crop_found_hash_path}"
+                )
+        else:
+            crop_found_sha256 = _initialize_array(
+                crop_found_hash_path, (len(rows),), np.dtype("S64")
+            )
 
     labels_path = split_dir / "labels.npy"
     if labels_path.exists():
@@ -223,6 +273,14 @@ def process_split(
                 or _file_hash(view_arrays[view][row_index]) != expected_hash
             ):
                 completed[row_index] = False
+    if crop_found_mask is not None:
+        for row_index in np.flatnonzero(completed):
+            expected_hash = bytes(crop_found_sha256[row_index]).decode().rstrip("\x00")
+            if (
+                not expected_hash
+                or _file_hash(crop_found_mask[row_index]) != expected_hash
+            ):
+                completed[row_index] = False
 
     if not meta_path.exists():
         _atomic_json(meta_path, expected_meta)
@@ -261,6 +319,7 @@ def process_split(
                 spec.as_dict(),
                 "crop" in view_names,
                 str(crop_path) if crop_path else None,
+                crop_settings_hash,
             )
         )
 
@@ -298,6 +357,17 @@ def process_split(
             checksum_arrays["crop"][row_index] = _file_hash(
                 decoded.crop_frames
             ).encode()
+            if decoded.crop_found_mask is None:
+                errors.append(
+                    {
+                        "row": row_index,
+                        "relative_path": row["relative_path"],
+                        "error": "crop-found mask was not decoded",
+                    }
+                )
+                return
+            crop_found_mask[row_index] = decoded.crop_found_mask
+            crop_found_sha256[row_index] = _file_hash(decoded.crop_found_mask).encode()
         source_indices[row_index] = decoded.frame_indices
         completed[row_index] = True
         completed_since_flush += 1
@@ -315,6 +385,11 @@ def process_split(
             *checksum_arrays.values(),
             labels,
             source_indices,
+            *(
+                [crop_found_mask, crop_found_sha256]
+                if crop_found_mask is not None
+                else []
+            ),
         ]:
             array.flush() if hasattr(array, "flush") else None
         # Commit the completion bitmap only after data/checksum pages are flushed.
@@ -400,12 +475,30 @@ def main() -> None:
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     spec = load_preprocess_spec(args.config, args.model)
+    crop_settings = config.get("crop_settings")
+    crop_settings_hash = None
+    if args.mode in {"crop", "both"}:
+        if not isinstance(crop_settings, dict):
+            parser.error("crop/both cache mode requires crop_settings in the config")
+        tau = float(crop_settings["tau"])
+        settings = {
+            "tau": tau,
+            "min_pair_frames": int(crop_settings["min_pair_frames"]),
+            "group_tau": tau * float(crop_settings["group_tau_multiplier"]),
+            "margin": float(crop_settings["margin"]),
+            "smoothing_window": int(crop_settings["smoothing_window"]),
+            "max_gap": int(crop_settings["max_gap"]),
+        }
+        crop_settings_hash = hashlib.sha256(
+            json.dumps(settings, sort_keys=True).encode()
+        ).hexdigest()
     config_hash = _json_hash(
         {
             "version": config.get("version", 1),
             "dataset": config.get("dataset", "rwf2000"),
             "spec": spec.as_dict(),
             "mode": args.mode,
+            "crop_settings_sha256": crop_settings_hash,
         }
     )
     manifest = pd.read_csv(args.manifest)
@@ -435,6 +528,7 @@ def main() -> None:
                 data_root=args.data_root,
                 mode=args.mode,
                 crop_cache_dir=args.crop_cache_dir,
+                crop_settings_hash=crop_settings_hash,
                 workers=args.workers,
                 max_clips=args.max_clips,
                 force=args.force,

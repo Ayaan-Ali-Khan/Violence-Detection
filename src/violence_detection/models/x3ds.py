@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import torch
 from torch import nn
 
@@ -28,6 +30,72 @@ def build_x3d(variant: str = "x3d_s", num_classes: int = 2) -> nn.Module:
         raise TypeError("Expected X3D classification projection to be nn.Linear")
     head.proj = nn.Linear(head.proj.in_features, num_classes)
     return model
+
+
+class LateFusionX3D(nn.Module):
+    """Independent full-frame and crop X3D streams with a learned logit head."""
+
+    def __init__(self, variant: str = "x3d_s", num_classes: int = 2) -> None:
+        super().__init__()
+        self.variant = variant
+        self.full_stream = build_x3d(variant, num_classes)
+        self.crop_stream = build_x3d(variant, num_classes)
+        self.fusion_head = nn.Linear(num_classes * 2, num_classes)
+
+    def forward(self, views: Mapping[str, torch.Tensor]) -> torch.Tensor:
+        if set(views) != {"full", "crop"}:
+            raise ValueError("LateFusionX3D requires full and crop video batches")
+        full_logits = self.full_stream(views["full"])
+        crop_logits = self.crop_stream(views["crop"])
+        return self.fusion_head(torch.cat((full_logits, crop_logits), dim=1))
+
+
+def initialize_fusion_streams(
+    model: LateFusionX3D,
+    full_checkpoint: str,
+    crop_checkpoint: str,
+) -> None:
+    """Initialize the two streams from their independently trained specialists."""
+    for name, path, stream, expected_mode in (
+        ("full", full_checkpoint, model.full_stream, "full"),
+        ("crop", crop_checkpoint, model.crop_stream, "crop"),
+    ):
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        if checkpoint.get("architecture", "x3d") != "x3d":
+            raise ValueError(f"{name} stream checkpoint is not a single-stream X3D")
+        if checkpoint.get("mode") != expected_mode:
+            raise ValueError(
+                f"{name} stream checkpoint mode must be {expected_mode!r}, "
+                f"got {checkpoint.get('mode')!r}"
+            )
+        checkpoint_variant = checkpoint.get("model_variant")
+        if checkpoint_variant != model.variant:
+            raise ValueError(
+                f"{name} stream variant {checkpoint_variant!r} does not match "
+                f"fusion variant {model.variant!r}"
+            )
+        stream.load_state_dict(checkpoint["model_state_dict"], strict=True)
+
+
+def fusion_parameter_groups(
+    model: LateFusionX3D, backbone_lr: float, head_lr: float
+) -> list[dict[str, object]]:
+    """Use lower LR for both video encoders and higher LR for classifier heads."""
+    backbones: list[nn.Parameter] = []
+    heads: list[nn.Parameter] = list(model.fusion_head.parameters())
+    for stream in (model.full_stream, model.crop_stream):
+        stream_head = list(stream.blocks[5].proj.parameters())
+        head_ids = {id(parameter) for parameter in stream_head}
+        heads.extend(stream_head)
+        backbones.extend(
+            parameter
+            for parameter in stream.parameters()
+            if id(parameter) not in head_ids
+        )
+    return [
+        {"params": backbones, "lr": backbone_lr},
+        {"params": heads, "lr": head_lr},
+    ]
 
 
 def initialize_pretrained_backbone(model: nn.Module, variant: str) -> list[str]:

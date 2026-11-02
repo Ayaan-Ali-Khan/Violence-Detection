@@ -99,7 +99,11 @@ def test_resume_safe_cache_and_mmap_full_crop_both_modes(tmp_path: Path) -> None
     crop_path.parent.mkdir(parents=True)
     crop_boxes = np.tile(np.asarray([0, 0, 16, 24], dtype=np.int32), (8, 1))
     with crop_path.open("wb") as stream:
-        np.savez_compressed(stream, crop_boxes_xyxy=crop_boxes)
+        np.savez_compressed(
+            stream,
+            crop_boxes_xyxy=crop_boxes,
+            fallback_mask=np.zeros(8, dtype=np.uint8),
+        )
 
     summary = process_split(
         rows,
@@ -116,6 +120,7 @@ def test_resume_safe_cache_and_mmap_full_crop_both_modes(tmp_path: Path) -> None
     )
     split_dir = tmp_path / "tensor_cache" / spec.input_tag / "train"
     assert summary["completed"] == 1
+    assert np.load(split_dir / "crop_found_mask.npy").all()
     first_verification = _run_verifier(
         tmp_path / "tensor_cache", spec.input_tag, manifest_path, tmp_path / "verify1"
     )

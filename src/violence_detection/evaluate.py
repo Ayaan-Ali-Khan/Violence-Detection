@@ -27,7 +27,7 @@ from torch.utils.data import DataLoader
 from violence_detection.data.augment import prepare_video_batch
 from violence_detection.data.dataset import CachedVideoDataset
 from violence_detection.data.preprocess import load_preprocess_spec
-from violence_detection.models.x3ds import build_x3d
+from violence_detection.models.x3ds import LateFusionX3D, build_x3d
 from violence_detection.utils.seed import seed_worker
 
 
@@ -46,10 +46,16 @@ def _predict(model, loader, spec, augmentation, device, amp):
     labels_all: list[np.ndarray] = []
     probabilities: list[np.ndarray] = []
     losses: list[float] = []
+    crop_statuses: list[np.ndarray] = []
     criterion = torch.nn.CrossEntropyLoss()
     model.eval()
     with torch.inference_mode():
-        for videos, labels in loader:
+        for batch in loader:
+            if len(batch) == 3:
+                videos, labels, crop_found = batch
+                crop_statuses.append(crop_found.numpy())
+            else:
+                videos, labels = batch
             labels_device = labels.to(device, non_blocking=True)
             inputs = prepare_video_batch(
                 videos,
@@ -60,9 +66,13 @@ def _predict(model, loader, spec, augmentation, device, amp):
             )
             with torch.autocast(device.type, dtype=torch.float16, enabled=amp):
                 if isinstance(inputs, dict):
-                    batch = inputs["full"].shape[0]
-                    logits_all = model(torch.cat([inputs["full"], inputs["crop"]]))
-                    logits = (logits_all[:batch] + logits_all[batch:]) / 2
+                    unwrapped = model.module if hasattr(model, "module") else model
+                    if isinstance(unwrapped, LateFusionX3D):
+                        logits = model(inputs)
+                    else:
+                        batch_size = inputs["full"].shape[0]
+                        logits_all = model(torch.cat([inputs["full"], inputs["crop"]]))
+                        logits = (logits_all[:batch_size] + logits_all[batch_size:]) / 2
                 else:
                     logits = model(inputs)
                 loss = criterion(logits, labels_device)
@@ -88,7 +98,8 @@ def _predict(model, loader, spec, augmentation, device, amp):
         "positive_class": "violent (Fight, label=1)",
         "num_clips": int(len(y_true)),
     }
-    return metrics, y_true, y_pred, y_probability
+    status = np.concatenate(crop_statuses) if crop_statuses else None
+    return metrics, y_true, y_pred, y_probability, status
 
 
 def main() -> None:
@@ -96,6 +107,13 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--config", type=Path, default=Path("configs/train_x3d.yaml"))
     parser.add_argument("--cache-dir", type=Path)
+    parser.add_argument("--input-tag")
+    parser.add_argument("--mode", choices=["full", "crop", "both"])
+    parser.add_argument(
+        "--include-crop-status",
+        action="store_true",
+        help="Require and export crop-found/fallback groups from the tensor cache",
+    )
     parser.add_argument(
         "--output-dir", type=Path, default=Path("runs/x3d_s_rwf2000/test")
     )
@@ -112,8 +130,10 @@ def main() -> None:
     model_config = config["model"]
     data_config = config["data"]
     variant = str(checkpoint.get("model_variant", model_config["variant"]))
-    mode = str(checkpoint.get("mode", data_config.get("mode", "full")))
-    input_tag = str(checkpoint.get("input_tag", data_config["input_tag"]))
+    mode = args.mode or str(checkpoint.get("mode", data_config.get("mode", "full")))
+    input_tag = args.input_tag or str(
+        checkpoint.get("input_tag", data_config["input_tag"])
+    )
     cache_root = args.cache_dir or Path(data_config["cache_dir"])
 
     if not torch.cuda.is_available() and not args.allow_cpu:
@@ -135,6 +155,7 @@ def main() -> None:
         mode=mode,
         training=False,
         manifest_path=data_config["manifest"],
+        return_crop_status=args.include_crop_status,
     )
     batch_size = int(config["training"]["per_gpu_batch_size"]) * max(1, gpu_count)
     loader = DataLoader(
@@ -150,7 +171,13 @@ def main() -> None:
         else None,
     )
 
-    model = build_x3d(variant, int(model_config.get("num_classes", 2)))
+    architecture = str(checkpoint.get("architecture", "x3d"))
+    if architecture == "late_fusion":
+        model = LateFusionX3D(variant, int(model_config.get("num_classes", 2)))
+    elif architecture == "x3d":
+        model = build_x3d(variant, int(model_config.get("num_classes", 2)))
+    else:
+        raise ValueError(f"Unsupported checkpoint architecture: {architecture!r}")
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     if torch.cuda.is_available():
@@ -160,7 +187,7 @@ def main() -> None:
     augmentation = yaml.safe_load(
         Path(data_config["preprocess_config"]).read_text(encoding="utf-8")
     ).get("augmentation", {})
-    metrics, y_true, y_pred, y_probability = _predict(
+    metrics, y_true, y_pred, y_probability, crop_status = _predict(
         model,
         loader,
         spec,
@@ -176,6 +203,16 @@ def main() -> None:
     prediction_rows: list[dict[str, Any]] = []
     for index in range(len(dataset)):
         record = dataset.record(index)
+        found_count = int(crop_status[index].sum()) if crop_status is not None else None
+        status_name = "unavailable"
+        if found_count is not None:
+            status_name = (
+                "crop_found"
+                if found_count == spec.num_frames
+                else "fallback"
+                if found_count == 0
+                else "mixed"
+            )
         prediction_rows.append(
             {
                 "relative_path": record.get("relative_path", index),
@@ -184,6 +221,9 @@ def main() -> None:
                 "prediction": int(y_pred[index]),
                 "prediction_name": "violent" if y_pred[index] else "nonviolent",
                 "violent_probability": float(y_probability[index]),
+                "crop_found_frames": found_count,
+                "sampled_frames": spec.num_frames if found_count is not None else None,
+                "crop_status": status_name,
             }
         )
     pd.DataFrame(prediction_rows).to_csv(
@@ -223,8 +263,15 @@ def main() -> None:
             ["Violent", str(matrix[1, 0]), str(matrix[1, 1])],
         ],
     )
+    input_label = {
+        "full": "full-frame",
+        "crop": "interaction-crop",
+        "both": "learned late fusion"
+        if architecture == "late_fusion"
+        else "shared-model paired views",
+    }[mode]
     report = (
-        "# X3D full-frame baseline: RWF-2000 test\n\n"
+        f"# X3D {input_label}: RWF-2000 test\n\n"
         "Positive class: violent (Fight, label 1). Precision, recall, and F1 are binary metrics for this class.\n\n"
         + metrics_table
         + "\n\nConfusion matrix (rows=actual, columns=predicted):\n\n"

@@ -104,6 +104,41 @@ def verify_split(split_dir: Path, expected_rows: int | None = None) -> dict[str,
                     f"{view} tensor/checksum file missing or corrupt: {exc}"
                 )
 
+        if "crop" in metadata.get("views", []):
+            mask_path = split_dir / "crop_found_mask.npy"
+            checksum_path = split_dir / "crop_found_sha256.npy"
+            try:
+                masks = np.load(mask_path, mmap_mode="r")
+                checksums = np.load(checksum_path, mmap_mode="r")
+                expected_mask_shape = (rows, expected_shape[1])
+                if masks.shape != expected_mask_shape or masks.dtype != np.bool_:
+                    result["issues"].append(
+                        f"crop_found_mask.npy shape/dtype invalid: {masks.shape}/{masks.dtype}"
+                    )
+                if checksums.shape != (rows,):
+                    result["issues"].append(
+                        f"crop_found_sha256.npy shape {checksums.shape} != {(rows,)}"
+                    )
+                elif completed is not None:
+                    checked = 0
+                    corrupt = 0
+                    for row_index in np.flatnonzero(completed):
+                        expected = bytes(checksums[row_index]).decode().rstrip("\x00")
+                        if not expected or _digest(masks[row_index]) != expected:
+                            corrupt += 1
+                        checked += 1
+                    result["crop_status_checksums_checked"] = checked
+                    result["crop_status_corrupt_rows"] = corrupt
+                    if corrupt:
+                        result["issues"].append(
+                            f"{corrupt} crop-found status rows have missing or mismatched checksums"
+                        )
+                result["mean_candidate_crop_found_fraction"] = float(masks.mean())
+            except (OSError, ValueError) as exc:
+                result["issues"].append(
+                    f"crop-found mask/checksum missing or corrupt: {exc}"
+                )
+
     for filename in ("labels.npy", "source_frame_indices.npy"):
         path = split_dir / filename
         if path.is_file():

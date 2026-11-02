@@ -37,6 +37,7 @@ class DecodedClip:
     full_frames: np.ndarray
     frame_indices: np.ndarray
     crop_frames: np.ndarray | None = None
+    crop_found_mask: np.ndarray | None = None
 
 
 def load_preprocess_spec(config_path: str | Path, model_name: str) -> PreprocessSpec:
@@ -113,6 +114,7 @@ def decode_video(
     *,
     include_crop: bool = False,
     crop_boxes_xyxy: np.ndarray | None = None,
+    crop_fallback_mask: np.ndarray | None = None,
 ) -> DecodedClip:
     """Decode a video once, sampling a bounded number of RGB uint8 frames.
 
@@ -123,6 +125,8 @@ def decode_video(
     """
     if include_crop and crop_boxes_xyxy is None:
         raise ValueError("crop boxes are required when include_crop=True")
+    if include_crop and crop_fallback_mask is None:
+        raise ValueError("crop fallback mask is required when include_crop=True")
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise OSError(f"Could not open video: {video_path}")
@@ -138,9 +142,11 @@ def decode_video(
 
     full_output: list[np.ndarray | None] = [None] * spec.cache_frames
     crop_output: list[np.ndarray | None] = [None] * spec.cache_frames
+    crop_found_output = np.zeros(spec.cache_frames, dtype=np.bool_)
     last_full: np.ndarray | None = None
     last_crop: np.ndarray | None = None
     last_sampled_index = -1
+    last_sampled_crop_found = False
     try:
         frame_index = 0
         while frame_index <= int(wanted.max()):
@@ -149,6 +155,14 @@ def decode_video(
                 break
             if frame_index in positions_by_frame:
                 last_sampled_index = frame_index
+                last_sampled_crop_found = (
+                    bool(
+                        frame_index < len(crop_fallback_mask)
+                        and not crop_fallback_mask[frame_index]
+                    )
+                    if include_crop
+                    else False
+                )
                 full_rgb = cv2.cvtColor(
                     cv2.resize(
                         frame_bgr,
@@ -175,6 +189,7 @@ def decode_video(
                     full_output[position] = last_full
                     if include_crop:
                         crop_output[position] = last_crop
+                        crop_found_output[position] = last_sampled_crop_found
             frame_index += 1
     finally:
         capture.release()
@@ -188,6 +203,7 @@ def decode_video(
             actual_indices[position] = last_sampled_index
         if include_crop and crop_output[position] is None:
             crop_output[position] = last_crop if last_crop is not None else last_full
+            crop_found_output[position] = last_sampled_crop_found
 
     full_frames = np.stack(full_output).astype(np.uint8, copy=False)
     crop_frames = (
@@ -197,4 +213,5 @@ def decode_video(
         full_frames=full_frames,
         frame_indices=actual_indices.astype(np.int32, copy=False),
         crop_frames=crop_frames,
+        crop_found_mask=crop_found_output if include_crop else None,
     )

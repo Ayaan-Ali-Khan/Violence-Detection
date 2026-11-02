@@ -30,7 +30,10 @@ from violence_detection.data.augment import prepare_video_batch
 from violence_detection.data.dataset import CachedVideoDataset
 from violence_detection.data.preprocess import load_preprocess_spec
 from violence_detection.models.x3ds import (
+    LateFusionX3D,
     build_x3d,
+    fusion_parameter_groups,
+    initialize_fusion_streams,
     initialize_pretrained_backbone,
     split_parameter_groups,
 )
@@ -58,6 +61,9 @@ def _metrics(labels: np.ndarray, probabilities: np.ndarray) -> dict[str, float]:
 
 def _forward(model: torch.nn.Module, videos: Any) -> torch.Tensor:
     if isinstance(videos, dict):
+        unwrapped = model.module if hasattr(model, "module") else model
+        if isinstance(unwrapped, LateFusionX3D):
+            return model(videos)
         batch = videos["full"].shape[0]
         combined = torch.cat([videos["full"], videos["crop"]], dim=0)
         logits = model(combined)
@@ -259,12 +265,20 @@ def main() -> None:
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--mode", choices=["full", "crop", "both"])
     parser.add_argument("--epochs", type=int)
+    parser.add_argument("--init-full-checkpoint", type=Path)
+    parser.add_argument("--init-crop-checkpoint", type=Path)
     parser.add_argument(
         "--allow-cpu", action="store_true", help="Allow a CPU smoke run"
     )
     args = parser.parse_args()
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    if args.init_full_checkpoint or args.init_crop_checkpoint:
+        initialization = config["model"].setdefault("initialization", {})
+        if args.init_full_checkpoint:
+            initialization["full_checkpoint"] = str(args.init_full_checkpoint)
+        if args.init_crop_checkpoint:
+            initialization["crop_checkpoint"] = str(args.init_crop_checkpoint)
     config["training"]["epochs"] = args.epochs or int(config["training"]["epochs"])
     mode = args.mode or config["data"]["mode"]
     cache_root = args.cache_dir or Path(config["data"]["cache_dir"])
@@ -353,14 +367,38 @@ def main() -> None:
             seed=seed,
         )
 
-    base_model = build_x3d(
-        str(model_config["variant"]), int(model_config.get("num_classes", 2))
-    )
-    if bool(model_config.get("pretrained", True)) and rank == 0:
-        missing = initialize_pretrained_backbone(
-            base_model, str(model_config["variant"])
+    architecture = str(model_config.get("architecture", "x3d"))
+    variant = str(model_config["variant"])
+    num_classes = int(model_config.get("num_classes", 2))
+    if architecture == "late_fusion":
+        base_model = LateFusionX3D(variant, num_classes)
+        initialization = model_config.get("initialization", {})
+        if rank == 0:
+            initialize_fusion_streams(
+                base_model,
+                str(initialization["full_checkpoint"]),
+                str(initialization["crop_checkpoint"]),
+            )
+            print("Initialized late-fusion streams from full and crop specialists.")
+        optimizer_groups = fusion_parameter_groups(
+            base_model,
+            float(training_config["learning_rate_backbone"]),
+            float(training_config["learning_rate_head"]),
         )
-        print(f"Loaded Kinetics-pretrained backbone; initialized new head: {missing}")
+    elif architecture == "x3d":
+        base_model = build_x3d(variant, num_classes)
+        if bool(model_config.get("pretrained", True)) and rank == 0:
+            missing = initialize_pretrained_backbone(base_model, variant)
+            print(
+                f"Loaded Kinetics-pretrained backbone; initialized new head: {missing}"
+            )
+        optimizer_groups = split_parameter_groups(
+            base_model,
+            float(training_config["learning_rate_backbone"]),
+            float(training_config["learning_rate_head"]),
+        )
+    else:
+        raise ValueError(f"Unsupported model architecture: {architecture!r}")
     base_model.to(device)
     if use_cuda:
         base_model.to(memory_format=torch.channels_last_3d)
@@ -369,18 +407,15 @@ def main() -> None:
             base_model,
             device_ids=[local_rank] if use_cuda else None,
             output_device=local_rank if use_cuda else None,
-            broadcast_buffers=False,
+            # Rank 0 initializes pretrained weights/checkpoints. Synchronize the
+            # BatchNorm running statistics on each DDP forward as well.
+            broadcast_buffers=True,
         )
         if distributed
         else base_model
     )
-    parameter_groups = split_parameter_groups(
-        base_model,
-        float(training_config["learning_rate_backbone"]),
-        float(training_config["learning_rate_head"]),
-    )
     optimizer = torch.optim.AdamW(
-        parameter_groups, weight_decay=float(training_config["weight_decay"])
+        optimizer_groups, weight_decay=float(training_config["weight_decay"])
     )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=2, min_lr=1e-7
@@ -492,6 +527,7 @@ def main() -> None:
                 checkpoint = {
                     "epoch": epoch + 1,
                     "model_variant": model_config["variant"],
+                    "architecture": architecture,
                     "input_tag": input_tag,
                     "mode": mode,
                     "model_state_dict": base_model.state_dict(),

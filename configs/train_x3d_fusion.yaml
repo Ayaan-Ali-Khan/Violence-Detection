@@ -1,0 +1,34 @@
+seed: 42
+deterministic: false
+model:
+  architecture: late_fusion
+  variant: x3d_s
+  pretrained: false
+  num_classes: 2
+  initialization:
+    full_checkpoint: /kaggle/working/experiments/x3d_s_rwf2000_full/best.pt
+    crop_checkpoint: /kaggle/working/experiments/x3d_s_rwf2000_crop/best.pt
+data:
+  manifest: data/splits/rwf2000.csv
+  preprocess_config: configs/preprocess_crops.yaml
+  input_tag: rwf_fullcrop_f16_s160_tau2p00_m0p10_v1
+  mode: both
+  cache_dir: /kaggle/working/tensor_cache/rwf2000
+training:
+  epochs: 25
+  patience: 5
+  per_gpu_batch_size: 4
+  workers_per_rank: 2
+  cpu_threads_per_rank: 2
+  prefetch_factor: 2
+  learning_rate_backbone: 0.000025
+  learning_rate_head: 0.000075
+  weight_decay: 0.01
+  gradient_clip_norm: 1.0
+  amp: true
+  log_every_steps: 20
+tracking:
+  backend: wandb
+  project: violence-detection
+  run_name: x3d-s-rwf2000-full-crop-late-fusion
+  tags: [phase-5, x3d-s, late-fusion, rwf2000, tau-2.0, margin-0.10]

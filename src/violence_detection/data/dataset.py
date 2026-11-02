@@ -32,12 +32,14 @@ class CachedVideoDataset(Dataset):
         mode: str = "full",
         training: bool = False,
         manifest_path: str | Path | None = None,
+        return_crop_status: bool = False,
     ) -> None:
         if mode not in {"full", "crop", "both"}:
             raise ValueError("mode must be one of: full, crop, both")
         self.spec: PreprocessSpec = load_preprocess_spec(preprocess_config, model_name)
         self.mode = mode
         self.training = training
+        self.return_crop_status = return_crop_status
         self.split_dir = Path(cache_root) / input_tag / split
         metadata_path = self.split_dir / "cache_meta.json"
         if not metadata_path.is_file():
@@ -58,6 +60,23 @@ class CachedVideoDataset(Dataset):
             view: np.load(self.split_dir / f"{view}_videos.npy", mmap_mode="r")
             for view in required_views
         }
+        crop_status_path = self.split_dir / "crop_found_mask.npy"
+        self.crop_found_mask = None
+        if crop_status_path.is_file():
+            self.crop_found_mask = np.load(crop_status_path, mmap_mode="r")
+            if (
+                self.crop_found_mask.shape
+                != (
+                    len(self.labels),
+                    self.spec.cache_frames,
+                )
+                or self.crop_found_mask.dtype != np.bool_
+            ):
+                raise ValueError(f"Invalid crop-found mask at {crop_status_path}")
+        if return_crop_status and self.crop_found_mask is None:
+            raise ValueError(
+                f"Crop-found status was requested but is missing at {crop_status_path}"
+            )
         self.completed = np.load(self.split_dir / "completed.npy", mmap_mode="r")
         if not bool(np.all(self.completed)):
             incomplete = int((~self.completed).sum())
@@ -107,12 +126,23 @@ class CachedVideoDataset(Dataset):
     def __getitem__(self, index: int):
         label = torch.tensor(int(self.labels[index]), dtype=torch.long)
         frame_indices = self._sample_indices()
+        crop_status = (
+            torch.from_numpy(
+                np.asarray(self.crop_found_mask[index, frame_indices]).copy()
+            )
+            if self.return_crop_status
+            else None
+        )
         if self.mode == "both":
-            return {
+            video = {
                 "full": self._sample_view(self.views["full"], index, frame_indices),
                 "crop": self._sample_view(self.views["crop"], index, frame_indices),
-            }, label
-        return self._sample_view(self.views[self.mode], index, frame_indices), label
+            }
+        else:
+            video = self._sample_view(self.views[self.mode], index, frame_indices)
+        if self.return_crop_status:
+            return video, label, crop_status
+        return video, label
 
     def record(self, index: int) -> dict[str, Any]:
         """Return manifest metadata for prediction/report output."""
