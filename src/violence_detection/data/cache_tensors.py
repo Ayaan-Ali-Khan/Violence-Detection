@@ -48,9 +48,14 @@ def resolve_crop_cache_path(
     parts = relative.parts
     if len(parts) >= 3 and parts[:2] == ("data", "raw"):
         relative = Path(*parts[3:])
-    return (
+    standard = (
         crop_cache_dir / dataset / split / relative.parent / f"{relative.name}.crop.npz"
     )
+    if standard.is_file():
+        return standard
+    # Some Kaggle Dataset uploads flatten the duplicated split directory.
+    flattened = crop_cache_dir / dataset / relative.parent / f"{relative.name}.crop.npz"
+    return flattened if flattened.is_file() else standard
 
 
 def _decode_worker(

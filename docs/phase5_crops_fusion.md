@@ -13,8 +13,8 @@ non-fallback crop box and false when the crop view uses the full frame.
    Kaggle. Select **T4 x2**, enable Internet, and add `WANDB_API_KEY` as a
    notebook secret.
 2. Attach the RWF-2000 video dataset and a Kaggle Dataset containing the Phase 3
-   RWF crop `.npz` files. Preserve the directory structure below
-   `yolo11n/rwf2000/...`; each archive must include `crop_boxes_xyxy`,
+   RWF crop `.npz` files. Keep the `rwf2000/...` hierarchy when possible; the
+   runner also accepts a flattened split-directory upload. Each archive must include `crop_boxes_xyxy`,
    `fallback_mask`, and the settings metadata. The notebook locates these
    inputs and fails early when it cannot match the train crop cache.
 3. Optionally attach the Phase 4 output as another Kaggle Dataset and set
