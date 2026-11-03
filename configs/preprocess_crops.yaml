@@ -21,13 +21,23 @@ models:
     mean: [0.45, 0.45, 0.45]
     std: [0.225, 0.225, 0.225]
   x3d_m:
-    input_tag: rwf_fullcrop_f16_s160_x3dm_tau2p00_m0p10_v1
+    # The cache stores model-independent uint8 frames. X3D-S, X3D-M, and
+    # Swin3D-T share these dimensions and can reuse one paired-view cache.
+    input_tag: rwf_fullcrop_f16_s160_tau2p00_m0p10_v1
     num_frames: 16
     cache_frames: 32
     resolution: 176
     input_size: 160
     mean: [0.45, 0.45, 0.45]
     std: [0.225, 0.225, 0.225]
+  swin3d_t:
+    input_tag: rwf_fullcrop_f16_s160_tau2p00_m0p10_v1
+    num_frames: 16
+    cache_frames: 32
+    resolution: 176
+    input_size: 160
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
 augmentation:
   horizontal_flip_probability: 0.5
   brightness_delta: 0.1

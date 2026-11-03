@@ -50,6 +50,64 @@ class LateFusionX3D(nn.Module):
         return self.fusion_head(torch.cat((full_logits, crop_logits), dim=1))
 
 
+class Swin3DViewAveraging(nn.Module):
+    """One Swin3D-T classifier applied to both paired views, with mean logits."""
+
+    def __init__(self, num_classes: int = 2) -> None:
+        super().__init__()
+        from torchvision.models.video import swin3d_t
+
+        self.backbone = swin3d_t(weights=None)
+        self.backbone.head = nn.Linear(self.backbone.head.in_features, num_classes)
+
+    def forward(
+        self, videos: torch.Tensor | Mapping[str, torch.Tensor]
+    ) -> torch.Tensor:
+        if isinstance(videos, Mapping):
+            if set(videos) != {"full", "crop"}:
+                raise ValueError("Swin3D-T requires full and crop paired views")
+            # Avoid materializing the paired views as one doubled input batch.
+            return (self.backbone(videos["full"]) + self.backbone(videos["crop"])) / 2
+        return self.backbone(videos)
+
+
+def initialize_pretrained_swin3d_t(model: Swin3DViewAveraging) -> list[str]:
+    """Load the torchvision Kinetics-400 Swin3D-T weights except its class head."""
+    from torchvision.models.video import Swin3D_T_Weights, swin3d_t
+
+    pretrained = swin3d_t(weights=Swin3D_T_Weights.KINETICS400_V1)
+    target = model.backbone.state_dict()
+    compatible = {
+        key: value
+        for key, value in pretrained.state_dict().items()
+        if key in target and target[key].shape == value.shape
+    }
+    missing, unexpected = model.backbone.load_state_dict(compatible, strict=False)
+    allowed_missing = {"head.weight", "head.bias"}
+    unexpected_missing = set(missing) - allowed_missing
+    if unexpected or unexpected_missing:
+        raise RuntimeError(
+            "Pretrained Swin3D-T checkpoint does not match this model: "
+            f"missing={sorted(unexpected_missing)}, unexpected={sorted(unexpected)}"
+        )
+    return sorted(allowed_missing & set(missing))
+
+
+def swin3d_parameter_groups(
+    model: Swin3DViewAveraging, backbone_lr: float, head_lr: float
+) -> list[dict[str, object]]:
+    """Use a smaller learning rate for the pretrained Swin3D-T backbone."""
+    head_parameters = list(model.backbone.head.parameters())
+    head_ids = {id(parameter) for parameter in head_parameters}
+    backbone_parameters = [
+        parameter for parameter in model.parameters() if id(parameter) not in head_ids
+    ]
+    return [
+        {"params": backbone_parameters, "lr": backbone_lr},
+        {"params": head_parameters, "lr": head_lr},
+    ]
+
+
 def initialize_fusion_streams(
     model: LateFusionX3D,
     full_checkpoint: str,
@@ -75,6 +133,14 @@ def initialize_fusion_streams(
                 f"fusion variant {model.variant!r}"
             )
         stream.load_state_dict(checkpoint["model_state_dict"], strict=True)
+
+
+def initialize_pretrained_fusion(model: LateFusionX3D) -> list[list[str]]:
+    """Initialize both late-fusion streams from the matching Kinetics weights."""
+    return [
+        initialize_pretrained_backbone(stream, model.variant)
+        for stream in (model.full_stream, model.crop_stream)
+    ]
 
 
 def fusion_parameter_groups(

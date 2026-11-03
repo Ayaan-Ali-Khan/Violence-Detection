@@ -1,4 +1,4 @@
-"""Distributed mixed-precision X3D training for Kaggle's multi-GPU runtime."""
+"""Distributed mixed-precision video-classifier training for Kaggle GPUs."""
 
 from __future__ import annotations
 
@@ -31,11 +31,15 @@ from violence_detection.data.dataset import CachedVideoDataset
 from violence_detection.data.preprocess import load_preprocess_spec
 from violence_detection.models.x3ds import (
     LateFusionX3D,
+    Swin3DViewAveraging,
     build_x3d,
     fusion_parameter_groups,
     initialize_fusion_streams,
     initialize_pretrained_backbone,
+    initialize_pretrained_fusion,
+    initialize_pretrained_swin3d_t,
     split_parameter_groups,
+    swin3d_parameter_groups,
 )
 from violence_detection.utils.logger import init_run
 from violence_detection.utils.seed import make_generator, seed_worker, set_seed
@@ -62,7 +66,7 @@ def _metrics(labels: np.ndarray, probabilities: np.ndarray) -> dict[str, float]:
 def _forward(model: torch.nn.Module, videos: Any) -> torch.Tensor:
     if isinstance(videos, dict):
         unwrapped = model.module if hasattr(model, "module") else model
-        if isinstance(unwrapped, LateFusionX3D):
+        if isinstance(unwrapped, (LateFusionX3D, Swin3DViewAveraging)):
             return model(videos)
         batch = videos["full"].shape[0]
         combined = torch.cat([videos["full"], videos["crop"]], dim=0)
@@ -373,13 +377,30 @@ def main() -> None:
     if architecture == "late_fusion":
         base_model = LateFusionX3D(variant, num_classes)
         initialization = model_config.get("initialization", {})
-        if rank == 0:
-            initialize_fusion_streams(
-                base_model,
-                str(initialization["full_checkpoint"]),
-                str(initialization["crop_checkpoint"]),
+        if initialization.get("full_checkpoint") or initialization.get(
+            "crop_checkpoint"
+        ):
+            if not (
+                initialization.get("full_checkpoint")
+                and initialization.get("crop_checkpoint")
+            ):
+                raise ValueError(
+                    "Late-fusion checkpoint initialization requires both "
+                    "full_checkpoint and crop_checkpoint."
+                )
+            if rank == 0:
+                initialize_fusion_streams(
+                    base_model,
+                    str(initialization["full_checkpoint"]),
+                    str(initialization["crop_checkpoint"]),
+                )
+                print("Initialized late-fusion streams from specialist checkpoints.")
+        elif bool(model_config.get("pretrained", True)) and rank == 0:
+            missing = initialize_pretrained_fusion(base_model)
+            print(
+                "Loaded Kinetics-pretrained X3D streams; initialized class heads: "
+                f"{missing}"
             )
-            print("Initialized late-fusion streams from full and crop specialists.")
         optimizer_groups = fusion_parameter_groups(
             base_model,
             float(training_config["learning_rate_backbone"]),
@@ -393,6 +414,20 @@ def main() -> None:
                 f"Loaded Kinetics-pretrained backbone; initialized new head: {missing}"
             )
         optimizer_groups = split_parameter_groups(
+            base_model,
+            float(training_config["learning_rate_backbone"]),
+            float(training_config["learning_rate_head"]),
+        )
+    elif architecture == "swin3d_t":
+        if variant != "swin3d_t":
+            raise ValueError("Swin3D-T requires model.variant='swin3d_t'.")
+        base_model = Swin3DViewAveraging(num_classes)
+        if bool(model_config.get("pretrained", True)) and rank == 0:
+            missing = initialize_pretrained_swin3d_t(base_model)
+            print(
+                f"Loaded Kinetics-pretrained Swin3D-T; initialized new head: {missing}"
+            )
+        optimizer_groups = swin3d_parameter_groups(
             base_model,
             float(training_config["learning_rate_backbone"]),
             float(training_config["learning_rate_head"]),
