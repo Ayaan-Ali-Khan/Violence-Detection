@@ -9,8 +9,9 @@ split, and the same official 400-clip test split.
 
 - **X3D-M late fusion (Task 37):** two independent Kinetics-pretrained X3D-M
   streams process the full frame and interaction crop. Their class logits feed
-  a learned fusion layer. It uses mixed precision and one clip per GPU to keep
-  T4 memory bounded.
+  a learned fusion layer. Its fixed pretrained 7x7 pooling window is replaced
+  by adaptive global pooling so it accepts the project's 160px input. It uses
+  mixed precision and one clip per GPU to keep T4 memory bounded.
 - **Swin3D-T (Task 38, optional):** a Kinetics-400-pretrained Swin3D-T processes
   each view sequentially and averages the two logits. It uses one clip per GPU
   and avoids concatenating both views into a doubled input batch. Set

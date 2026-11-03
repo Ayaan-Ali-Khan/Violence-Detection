@@ -26,6 +26,12 @@ def build_x3d(variant: str = "x3d_s", num_classes: int = 2) -> nn.Module:
         raise ValueError("num_classes must be at least 2")
     model = _factory(variant)(pretrained=False)
     head = model.blocks[5]
+    if variant == "x3d_m":
+        # PyTorchVideo's X3D-M head pools with a fixed 7x7 spatial window,
+        # which fails for our 160px input (the final feature map is 5x5).
+        # Adaptive global pooling preserves the pretrained classifier's
+        # expected channel count and supports the project's cached resolution.
+        head.pool = nn.AdaptiveAvgPool3d((1, 1, 1))
     if not isinstance(head.proj, nn.Linear):
         raise TypeError("Expected X3D classification projection to be nn.Linear")
     head.proj = nn.Linear(head.proj.in_features, num_classes)
