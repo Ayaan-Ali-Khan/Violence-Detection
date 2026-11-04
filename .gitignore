@@ -36,8 +36,6 @@ data/cache/
 *.pth
 *.ckpt
 *.onnx
-model_checkpoints/*
-!model_checkpoints/.gitkeep
 
 # Experiment output directories and tracker logs
 runs/

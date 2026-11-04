@@ -46,7 +46,9 @@ def _markdown_table(headers: list[str], rows: list[list[str]]) -> str:
     )
 
 
-def _predict(model, loader, spec, augmentation, device, amp, warmup_batches):
+def _predict(
+    model, loader, spec, augmentation, device, amp, warmup_batches, threshold
+):
     predictions: list[np.ndarray] = []
     labels_all: list[np.ndarray] = []
     probabilities: list[np.ndarray] = []
@@ -94,8 +96,9 @@ def _predict(model, loader, spec, augmentation, device, amp, warmup_batches):
                 timed_batches += 1
             loss = criterion(logits, labels_device)
             probability = logits.softmax(dim=1)[:, 1]
-            predictions.append(logits.argmax(dim=1).cpu().numpy())
-            probabilities.append(probability.float().cpu().numpy())
+            probability_numpy = probability.float().cpu().numpy()
+            probabilities.append(probability_numpy)
+            predictions.append((probability_numpy >= threshold).astype(np.int64))
             labels_all.append(labels.cpu().numpy())
             losses.append(float(loss.item()) * labels.size(0))
     y_true = np.concatenate(labels_all)
@@ -114,6 +117,7 @@ def _predict(model, loader, spec, augmentation, device, amp, warmup_batches):
         "roc_auc": auc,
         "positive_class": "violent (Fight, label=1)",
         "num_clips": int(len(y_true)),
+        "decision_threshold_violent": float(threshold),
     }
     status = np.concatenate(crop_statuses) if crop_statuses else None
     timing = {
@@ -139,6 +143,11 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--config", type=Path, default=Path("configs/train_x3d.yaml"))
     parser.add_argument("--cache-dir", type=Path)
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="Override the manifest in the model config for cross-dataset evaluation.",
+    )
     parser.add_argument("--input-tag")
     parser.add_argument("--mode", choices=["full", "crop", "both"])
     parser.add_argument(
@@ -146,18 +155,28 @@ def main() -> None:
         action="store_true",
         help="Require and export crop-found/fallback groups from the tensor cache",
     )
-    parser.add_argument(
-        "--output-dir", type=Path, default=Path("runs/x3d_s_rwf2000/test")
-    )
-    parser.add_argument("--split", choices=["test"], default="test")
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--split", default="test")
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--warmup-batches", type=int, default=5)
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Fixed violent-class probability threshold selected from validation.",
+    )
+    parser.add_argument(
+        "--device",
+        help="Evaluation device, such as cuda:0 or cuda:1; defaults to the first GPU.",
+    )
     parser.add_argument(
         "--allow-cpu",
         action="store_true",
         help="Allow CPU evaluation for a small smoke run",
     )
     args = parser.parse_args()
+    if not 0.0 <= args.threshold <= 1.0:
+        raise ValueError("--threshold must be between 0 and 1")
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -172,7 +191,18 @@ def main() -> None:
 
     if not torch.cuda.is_available() and not args.allow_cpu:
         raise RuntimeError("Test evaluation requires CUDA. Run the Kaggle GPU runner.")
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    default_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = torch.device(args.device or default_device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(f"CUDA device requested but CUDA is unavailable: {device}")
+    if (
+        device.type == "cuda"
+        and device.index is not None
+        and device.index >= torch.cuda.device_count()
+    ):
+        raise ValueError(
+            f"Requested {device}, but only {torch.cuda.device_count()} CUDA device(s) are visible"
+        )
     torch.set_num_threads(int(config["training"]["cpu_threads_per_rank"]))
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
@@ -187,7 +217,7 @@ def main() -> None:
         preprocess_config=data_config["preprocess_config"],
         mode=mode,
         training=False,
-        manifest_path=data_config["manifest"],
+        manifest_path=args.manifest or data_config["manifest"],
         return_crop_status=args.include_crop_status,
     )
     batch_size = args.batch_size or int(config["training"]["per_gpu_batch_size"])
@@ -230,12 +260,27 @@ def main() -> None:
         device,
         bool(config["training"]["amp"] and torch.cuda.is_available()),
         args.warmup_batches,
+        args.threshold,
     )
     matrix = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    dataset_name = (
+        str(dataset.record(0).get("dataset", "dataset"))
+        if len(dataset)
+        else "dataset"
+    )
+    if args.output_dir is None:
+        model_name = variant if architecture == variant else f"{variant}_{architecture}"
+        args.output_dir = (
+            Path("experiments") / "evaluation" / f"{dataset_name}_{args.split}" / model_name
+        )
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / "test_metrics.json").write_text(
+    (args.output_dir / "metrics.json").write_text(
         json.dumps(metrics, indent=2, allow_nan=False), encoding="utf-8"
     )
+    if args.split == "test":
+        (args.output_dir / "test_metrics.json").write_text(
+            json.dumps(metrics, indent=2, allow_nan=False), encoding="utf-8"
+        )
     timing["model_architecture"] = architecture
     timing["model_variant"] = variant
     (args.output_dir / "inference_speed.json").write_text(
@@ -257,19 +302,23 @@ def main() -> None:
         prediction_rows.append(
             {
                 "relative_path": record.get("relative_path", index),
+                "dataset": record.get("dataset", "unknown"),
+                "split": record.get("split", args.split),
                 "label": int(y_true[index]),
                 "label_name": "violent" if y_true[index] else "nonviolent",
                 "prediction": int(y_pred[index]),
                 "prediction_name": "violent" if y_pred[index] else "nonviolent",
                 "violent_probability": float(y_probability[index]),
+                "decision_threshold_violent": float(args.threshold),
                 "crop_found_frames": found_count,
                 "sampled_frames": spec.num_frames if found_count is not None else None,
                 "crop_status": status_name,
             }
         )
-    pd.DataFrame(prediction_rows).to_csv(
-        args.output_dir / "test_predictions.csv", index=False
-    )
+    predictions_frame = pd.DataFrame(prediction_rows)
+    predictions_frame.to_csv(args.output_dir / "predictions.csv", index=False)
+    if args.split == "test":
+        predictions_frame.to_csv(args.output_dir / "test_predictions.csv", index=False)
     matrix_frame = pd.DataFrame(
         matrix,
         index=["actual_nonviolent", "actual_violent"],
@@ -285,7 +334,7 @@ def main() -> None:
         yticklabels=["Nonviolent", "Violent"],
         xlabel="Predicted label",
         ylabel="Actual label",
-        title="RWF-2000 test confusion matrix",
+        title=f"{dataset_name} {args.split} confusion matrix",
     )
     for (row, column), value in np.ndenumerate(matrix):
         axis.text(column, row, str(value), ha="center", va="center")
@@ -312,7 +361,7 @@ def main() -> None:
         else "shared-model paired views",
     }[mode]
     report = (
-        f"# {architecture} {input_label}: RWF-2000 test\n\n"
+        f"# {architecture} {input_label}: {dataset_name} {args.split}\n\n"
         "Positive class: violent (Fight, label 1). Precision, recall, and F1 are binary metrics for this class.\n\n"
         + metrics_table
         + "\n\nInference speed (single visible GPU, warmup excluded): "
@@ -323,7 +372,11 @@ def main() -> None:
         + matrix_table
         + "\n"
     )
-    (args.output_dir / "test_results.md").write_text(report, encoding="utf-8")
+    (args.output_dir / f"{dataset_name}_{args.split}_results.md").write_text(
+        report, encoding="utf-8"
+    )
+    if args.split == "test":
+        (args.output_dir / "test_results.md").write_text(report, encoding="utf-8")
     print(report)
 
 

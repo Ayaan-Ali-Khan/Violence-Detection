@@ -170,15 +170,51 @@ def main() -> None:
     parser.add_argument(
         "--manifest", type=Path, default=Path("data/splits/rwf2000.csv")
     )
+    parser.add_argument(
+        "--dataset",
+        help="Dataset id in the manifest; required if it contains several datasets.",
+    )
+    parser.add_argument(
+        "--split",
+        action="append",
+        help="Split to verify; repeat for several. By default, verify all manifest splits.",
+    )
     parser.add_argument("--report-dir", type=Path)
     args = parser.parse_args()
 
     manifest = pd.read_csv(args.manifest)
-    manifest = manifest.loc[manifest["dataset"] == "rwf2000"]
+    dataset_names = sorted(str(value) for value in manifest["dataset"].dropna().unique())
+    if args.dataset:
+        if args.dataset not in dataset_names:
+            raise ValueError(
+                f"Dataset {args.dataset!r} is not present in {args.manifest}; "
+                f"found {dataset_names}"
+            )
+        manifest = manifest.loc[manifest["dataset"] == args.dataset]
+    elif len(dataset_names) != 1:
+        raise ValueError(
+            "Manifest must contain one dataset; select it with --dataset. "
+            f"Found {dataset_names}"
+        )
+    dataset_name = args.dataset or dataset_names[0]
+    if manifest.empty:
+        raise ValueError(f"Manifest contains no rows for dataset {dataset_name!r}")
     expected = manifest.groupby("split").size().to_dict()
+    supported_splits = {"train", "validation", "test", "evaluation"}
+    unsupported_splits = set(expected) - supported_splits
+    if unsupported_splits:
+        raise ValueError(
+            f"Unsupported manifest split names: {sorted(unsupported_splits)}"
+        )
+    selected_splits = set(args.split or expected)
+    unknown_splits = selected_splits - set(expected)
+    if unknown_splits:
+        raise ValueError(f"Selected splits are absent from the manifest: {sorted(unknown_splits)}")
     root = args.cache_dir / args.input_tag
     split_dirs = [
-        root / split for split in ("train", "validation", "test") if split in expected
+        root / split
+        for split in ("train", "validation", "test", "evaluation")
+        if split in selected_splits
     ]
     results = [verify_split(path, int(expected[path.name])) for path in split_dirs]
     report_dir = args.report_dir or root
@@ -193,6 +229,7 @@ def main() -> None:
     lines = [
         "# Tensor-cache verification",
         "",
+        f"Dataset: `{dataset_name}`",
         f"Input profile: `{args.input_tag}`",
         f"Cache root: `{root.as_posix()}`",
         f"Overall status: **{'PASS' if ok else 'ISSUES FOUND'}**",

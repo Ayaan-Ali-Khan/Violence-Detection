@@ -265,7 +265,12 @@ def _save_history(history: list[dict[str, Any]], output_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path("configs/train_x3d.yaml"))
-    parser.add_argument("--output-dir", type=Path, default=Path("runs/x3d_s_rwf2000"))
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        help="Optional separate destination for best.pt and last.pt; defaults to --output-dir.",
+    )
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--mode", choices=["full", "crop", "both"])
     parser.add_argument("--epochs", type=int)
@@ -277,6 +282,9 @@ def main() -> None:
     args = parser.parse_args()
 
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
+    model_config = config["model"]
+    architecture = str(model_config.get("architecture", "x3d"))
+    variant = str(model_config["variant"])
     if args.init_full_checkpoint or args.init_crop_checkpoint:
         initialization = config["model"].setdefault("initialization", {})
         if args.init_full_checkpoint:
@@ -315,11 +323,26 @@ def main() -> None:
         torch.backends.cuda.matmul.allow_tf32 = True
     seed = int(config["seed"])
     set_seed(seed + rank, deterministic=bool(config.get("deterministic", False)))
-    output_dir = args.output_dir
+    checkpoint_name = (
+        variant if architecture == variant else f"{variant}_{architecture}"
+    )
+    run_name = str(
+        config.get("tracking", {}).get("run_name", checkpoint_name)
+    ).replace("/", "_")
+    output_dir = args.output_dir or Path("experiments") / run_name
+    checkpoint_dir = args.checkpoint_dir or Path("model_checkpoints") / checkpoint_name
     output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     if rank == 0:
+        resolved_config = {
+            **config,
+            "artifact_paths": {
+                "experiment_dir": str(output_dir),
+                "checkpoint_dir": str(checkpoint_dir),
+            },
+        }
         (output_dir / "resolved_config.yaml").write_text(
-            yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+            yaml.safe_dump(resolved_config, sort_keys=False), encoding="utf-8"
         )
         print(
             f"Training on {actual_world_size} process(es); "
@@ -333,7 +356,6 @@ def main() -> None:
             flush=True,
         )
 
-    model_config = config["model"]
     data_config = config["data"]
     spec = load_preprocess_spec(
         data_config["preprocess_config"], model_config["variant"]
@@ -371,8 +393,6 @@ def main() -> None:
             seed=seed,
         )
 
-    architecture = str(model_config.get("architecture", "x3d"))
-    variant = str(model_config["variant"])
     num_classes = int(model_config.get("num_classes", 2))
     if architecture == "late_fusion":
         base_model = LateFusionX3D(variant, num_classes)
@@ -572,12 +592,12 @@ def main() -> None:
                     "val_metrics": val_metrics,
                     "config": config,
                 }
-                _atomic_save(checkpoint, output_dir / "last.pt")
+                _atomic_save(checkpoint, checkpoint_dir / "last.pt")
                 improved = val_metrics["loss"] < best_val_loss
                 if improved:
                     best_val_loss = val_metrics["loss"]
                     epochs_without_improvement = 0
-                    _atomic_save(checkpoint, output_dir / "best.pt")
+                    _atomic_save(checkpoint, checkpoint_dir / "best.pt")
                 else:
                     epochs_without_improvement += 1
                 _save_history(history, output_dir)
@@ -615,7 +635,7 @@ def main() -> None:
 
         if rank == 0:
             best_checkpoint = torch.load(
-                output_dir / "best.pt", map_location=device, weights_only=False
+                checkpoint_dir / "best.pt", map_location=device, weights_only=False
             )
             base_model.load_state_dict(best_checkpoint["model_state_dict"])
             train_eval = _loader(

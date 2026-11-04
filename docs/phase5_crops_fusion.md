@@ -26,10 +26,11 @@ non-fallback crop box and false when the crop view uses the full frame.
 
 The paired tensor cache is approximately 11 GiB for 1,986 clips (about 5.5 GiB
 per view), plus masks and metadata. It is under `/kaggle/working/tensor_cache/`.
-Training artifacts are under `/kaggle/working/experiments/`; download those
-model and comparison outputs separately from the tensor cache if output size is
-a concern. In the repository workspace, keep the downloaded Phase 5 output
-under `cache/training/phase5/` to match the existing Phase 4 artifact layout.
+Run histories, resolved configs, curves, evaluations, and comparisons are under
+`/kaggle/working/experiments/phase5/`. Reusable checkpoints are under
+`/kaggle/working/model_checkpoints/phase5/`. Download these folders to the
+matching local `experiments/phase5/` and `model_checkpoints/phase5/` paths;
+keep decoded video tensors under `cache/`.
 
 ## Models and resource limits
 

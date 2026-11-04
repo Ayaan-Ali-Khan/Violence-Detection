@@ -15,11 +15,12 @@ cached frames (`round(160 × 1.1)`) and Kinetics normalization values.
    and add `WANDB_API_KEY` as a Kaggle secret.
 2. Set `GIT_REF` in the first code cell to a commit SHA when you need a
    reportable, pinned run. The notebook clones or checks out that code.
-3. Run all cells. Caching, verification, training, and held-out test evaluation
-   save under `/kaggle/working` so they are available from notebook output.
-4. Download `tensor_cache/reports/verification_report.md`,
-   `experiments/x3d_s_rwf2000/` and its `test/` subdirectory. Preserve these
-   artifacts with the W&B run link for the report.
+3. Run all cells. The tensor cache is under `/kaggle/working/tensor_cache/`,
+   run histories and test reports under `/kaggle/working/experiments/phase4/`,
+   and weights under `/kaggle/working/model_checkpoints/phase4/`.
+4. Download those experiment and checkpoint folders to the matching local
+   `experiments/phase4/` and `model_checkpoints/phase4/` paths. Preserve them
+   with the W&B run link for the report.
 
 The full-frame cache is expected to use about 5.5 GiB for 1,986 clips, plus
 small metadata arrays. It can resume after interruption. `--max-clips` is
@@ -36,10 +37,11 @@ the model and GPU-side resize/normalization use both T4s. Reduce batch size to
 4 per GPU if Kaggle reports CUDA out-of-memory; retain both GPUs.
 
 The training script selects checkpoints by validation loss and early stops.
-It writes `best.pt`, `last.pt`, `history.csv`, `learning_curves.png`, and
-`train_val_gap.json`. It never reads the test split. The separate evaluator
-reports test accuracy, violent-class precision/recall/F1, ROC AUC, and the
-confusion matrix, with per-clip predictions.
+It writes `best.pt` and `last.pt` under `model_checkpoints/`; `history.csv`,
+`learning_curves.png`, `resolved_config.yaml`, and `train_val_gap.json` go under
+`experiments/`. It never reads the test split. The separate evaluator writes
+test accuracy, violent-class precision/recall/F1, ROC AUC, confusion matrices,
+and per-clip predictions under the experiment's `evaluation/` directory.
 
 ## Main files
 
@@ -63,5 +65,5 @@ confusion matrix, with per-clip predictions.
   baseline settings and Kaggle orchestration.
 
 The Kaggle cache, trained baseline, validation gap, and held-out test results
-are generated artifacts. They are not included in the repository until the
-notebook has completed successfully.
+are generated artifacts. The cache is kept under `cache/`; checkpoint weights
+under `model_checkpoints/`; run histories and test results under `experiments/`.

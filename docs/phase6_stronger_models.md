@@ -35,13 +35,15 @@ installs only `requirements-kaggle.txt`, builds and verifies the paired cache,
 trains candidates with DistributedDataParallel, AMP, two data-loader workers
 per rank, and two CPU threads per rank.
 
-The runner writes results under `/kaggle/working/phase6/`:
+The runner writes experiment records under `/kaggle/working/experiments/phase6/`
+and reusable weights under `/kaggle/working/model_checkpoints/phase6/`:
 
-- `experiments/`: best/last checkpoints, resolved configs, validation history,
-  learning curves, and train/validation gap reports.
+- `experiments/phase6/`: resolved configs, validation history, learning curves,
+  train/validation gap reports, evaluations, comparison, and cache verification.
+- `model_checkpoints/phase6/`: `best.pt` and `last.pt` for X3D-M and Swin3D-T.
 - `evaluation/`: test metrics, predictions, confusion matrices, and
   `inference_speed.json` for each model.
-- `comparison/`: aligned metrics, speed comparison, and a classifier
+- `comparison/` (under `experiments/phase6/`): aligned metrics, speed comparison, and a classifier
   recommendation.
 
 ## Comparison method
@@ -62,5 +64,33 @@ the T4 hardware needed to produce valid Phase 6 speed measurements.
 ## Phase 5 starting point
 
 On the 400-clip RWF-2000 test split, Phase 5 measured X3D-S late fusion at
-89.0% accuracy, 0.889 violent-class F1, and 0.957 ROC AUC. X3D-M and Swin3D-T
-must be compared against that result before selecting the final classifier.
+89.0% accuracy, 0.889 violent-class F1, and 0.957 ROC AUC. Phase 6 compared
+X3D-M and Swin3D-T against this baseline before selecting the leading candidate.
+
+## Completed Phase 6 results
+
+The Kaggle T4 run completed both stronger-model training jobs, evaluated all
+three candidates on the same 400 official RWF-2000 test clips, and produced
+checkpoints, training histories, predictions, confusion matrices, and timing
+reports. The comparison results are:
+
+| model | accuracy | violent F1 | ROC AUC | clips/s | ms/clip |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| X3D-S late fusion (Phase 5) | 0.8900 | 0.8894 | 0.9572 | 23.14 | 43.21 |
+| X3D-M late fusion | 0.8650 | 0.8657 | 0.9414 | 23.62 | 42.34 |
+| Swin3D-T paired views | 0.8975 | 0.8967 | 0.9565 | 15.40 | 64.92 |
+
+Using the predefined rule (within 0.005 absolute violent-class F1 of the best,
+then choose the fastest qualifying model), **Swin3D-T is the selected
+classifier**. It is the only model within that F1 tolerance of the top score.
+X3D-S is about 21.8 ms faster per clip but its F1 is 0.0073 below Swin3D-T,
+so it does not satisfy the specified tolerance. X3D-M is faster still by a
+small amount, but its test F1 is lower than both alternatives.
+
+These are clip-level classifier measurements, not end-to-end surveillance
+pipeline latency: the timing excludes data-loader wait, tracking, and the
+alerting/web-app path. The test set contains 400 clips, so treat the modest
+metric differences as a model-selection result for this project rather than
+proof of broad generalization. The model comparison and recommendation JSON
+under `experiments/phase6/comparison/` are the run's machine-readable
+source of truth.

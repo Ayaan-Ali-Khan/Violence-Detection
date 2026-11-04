@@ -454,7 +454,13 @@ def main() -> None:
         "--manifest", type=Path, default=Path("data/splits/rwf2000.csv")
     )
     parser.add_argument("--config", type=Path, default=Path("configs/preprocess.yaml"))
-    parser.add_argument("--model", choices=["x3d_s", "x3d_m"], default="x3d_s")
+    parser.add_argument(
+        "--model", choices=["x3d_s", "x3d_m", "swin3d_t"], default="x3d_s"
+    )
+    parser.add_argument(
+        "--dataset",
+        help="Dataset id to cache; required when the manifest contains multiple datasets.",
+    )
     parser.add_argument("--data-root", type=Path, default=Path("."))
     parser.add_argument(
         "--cache-dir", type=Path, default=Path("cache/tensor_cache/rwf2000")
@@ -466,6 +472,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--max-clips", type=int, help="Optional smoke/resume limit per split"
+    )
+    parser.add_argument(
+        "--split",
+        action="append",
+        choices=["train", "validation", "test", "evaluation"],
+        help="Split to cache; repeat to select several. By default, cache all splits.",
     )
     parser.add_argument(
         "--force",
@@ -497,29 +509,49 @@ def main() -> None:
         crop_settings_hash = hashlib.sha256(
             json.dumps(settings, sort_keys=True).encode()
         ).hexdigest()
-    config_hash = _json_hash(
-        {
-            "version": config.get("version", 1),
-            "dataset": config.get("dataset", "rwf2000"),
-            "spec": spec.as_dict(),
-            "mode": args.mode,
-            "crop_settings_sha256": crop_settings_hash,
-        }
-    )
     manifest = pd.read_csv(args.manifest)
     required = {"dataset", "split", "relative_path", "label", "label_name"}
     missing = required - set(manifest.columns)
     if missing:
         raise ValueError(f"{args.manifest} is missing columns: {sorted(missing)}")
-    manifest = manifest.loc[manifest["dataset"] == "rwf2000"]
+    dataset_names = sorted(str(value) for value in manifest["dataset"].dropna().unique())
+    if args.dataset:
+        if args.dataset not in dataset_names:
+            raise ValueError(
+                f"Dataset {args.dataset!r} is not present in {args.manifest}; "
+                f"found {dataset_names}"
+            )
+        manifest = manifest.loc[manifest["dataset"] == args.dataset]
+        dataset_name = args.dataset
+    elif len(dataset_names) == 1:
+        dataset_name = dataset_names[0]
+    else:
+        raise ValueError(
+            "Manifest must contain one dataset; select it with --dataset. "
+            f"Found {dataset_names}"
+        )
     if manifest.empty:
-        raise ValueError("Manifest contains no RWF-2000 rows")
-
+        raise ValueError(f"Manifest contains no rows for dataset {dataset_name!r}")
+    config_hash = _json_hash(
+        {
+            "version": config.get("version", 1),
+            "dataset": dataset_name,
+            "spec": spec.as_dict(),
+            "mode": args.mode,
+            "crop_settings_sha256": crop_settings_hash,
+        }
+    )
+    available_splits = set(manifest["split"].astype(str))
+    selected_splits = set(args.split or available_splits)
+    unknown_splits = selected_splits - available_splits
+    if unknown_splits:
+        raise ValueError(
+            f"Selected splits are absent from the manifest: {sorted(unknown_splits)}"
+        )
+    preferred_order = ["train", "validation", "test", "evaluation"]
     split_order = [
-        name
-        for name in ("train", "validation", "test")
-        if name in set(manifest["split"])
-    ]
+        name for name in preferred_order if name in selected_splits
+    ] + sorted(selected_splits - set(preferred_order))
     summaries = []
     for split in split_order:
         rows = manifest.loc[manifest["split"] == split]

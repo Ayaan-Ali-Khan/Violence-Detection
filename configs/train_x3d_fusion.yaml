@@ -6,8 +6,8 @@ model:
   pretrained: false
   num_classes: 2
   initialization:
-    full_checkpoint: /kaggle/working/experiments/x3d_s_rwf2000_full/best.pt
-    crop_checkpoint: /kaggle/working/experiments/x3d_s_rwf2000_crop/best.pt
+    full_checkpoint: /kaggle/working/model_checkpoints/phase5/x3d_s_rwf2000_full/best.pt
+    crop_checkpoint: /kaggle/working/model_checkpoints/phase5/x3d_s_rwf2000_crop/best.pt
 data:
   manifest: data/splits/rwf2000.csv
   preprocess_config: configs/preprocess_crops.yaml
