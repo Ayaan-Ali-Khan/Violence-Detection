@@ -20,3 +20,6 @@ The proposed system consists of three primary tasks:
 
 - [Detection and tracking](docs/detection_tracking.md)
 - [Interaction-pair selection and crop generation](docs/interaction_crops.md)
+- [Clip-level inference API](docs/inference.md)
+- [Phase 8 Kaggle inference smoke notebook](notebooks/kaggle_phase8_inference_smoke.ipynb)
+- [Phase 8 packaging and reproducibility](docs/phase8_packaging_reproducibility.md)

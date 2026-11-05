@@ -46,6 +46,12 @@ lightning_logs/
 tensorboard/
 experiments/*
 !experiments/README.md
+!experiments/phase8/
+experiments/phase8/*
+!experiments/phase8/*.csv
+!experiments/phase8/*.md
+!experiments/phase8/*.png
+!experiments/phase8/*.json
 
 # Editor and OS files
 .vscode/

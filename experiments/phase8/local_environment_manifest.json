@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "git_commit": "9c579b2f03c3f109d95de62f6d0edd2f83db0944",
+  "working_tree_dirty": true,
+  "python": "3.14.7",
+  "platform": "Linux-7.0.0-42-generic-x86_64-with-glibc2.43",
+  "torch": "2.15.0+cu132",
+  "cuda_available": false,
+  "cuda_version": "13.2",
+  "gpus": [],
+  "packages": {
+    "torch": "2.15.0",
+    "torchvision": "0.29.2",
+    "pytorchvideo": "0.1.5",
+    "ultralytics": "8.4.191",
+    "numpy": "1.26.4",
+    "opencv-python-headless": "4.11.0.86",
+    "pandas": "2.3.3",
+    "PyYAML": "6.0.3",
+    "scikit-learn": "1.9.1"
+  },
+  "inputs": {
+    "configs/detection.yaml": {
+      "exists": true,
+      "sha256": "fe8a538682fd58cfc7d253059f5f030fbb59ad2956bc0c094ed0ab84a474c21e",
+      "size_bytes": 314
+    },
+    "configs/bytetrack.yaml": {
+      "exists": true,
+      "sha256": "8bada494bffa3ef2a7978ec2d165dc9168841be9e63efafc170a4eb0d12a805d",
+      "size_bytes": 219
+    },
+    "configs/interaction_crops.yaml": {
+      "exists": true,
+      "sha256": "b3e41bbb28ceb7ee3206fdbf39cbd20d0e53cdd8f7b95b10e181a6ebfe381a27",
+      "size_bytes": 177
+    },
+    "configs/preprocess_crops.yaml": {
+      "exists": true,
+      "sha256": "a814fc6bbdd5e55a2ce8817464f1a43f175dc98e14ab459100ccd0c0058d5dd4",
+      "size_bytes": 1163
+    },
+    "configs/preprocess.yaml": {
+      "exists": true,
+      "sha256": "1dd0313fdcf72f3b447fb2d6c6e9dca639ca32874386959ce7ca839099015824",
+      "size_bytes": 770
+    },
+    "configs/train_swin3d_t.yaml": {
+      "exists": true,
+      "sha256": "a22e008d99e9b1400452c51ea9414afb11ac00129b3be8a995ceb9034587edec",
+      "size_bytes": 751
+    },
+    "configs/train_x3d_fusion.yaml": {
+      "exists": true,
+      "sha256": "77dcfae1536bb26b954d77e97d574fefe81269ab14fb0d1ea1c279be56af3619",
+      "size_bytes": 974
+    },
+    "configs/train_x3d_m_fusion.yaml": {
+      "exists": true,
+      "sha256": "e2b775f5ec6a8104f4e58759cef27dab7dd48e576a107e1db7fb5b47f228f60d",
+      "size_bytes": 743
+    },
+    "data/splits/rwf2000.csv": {
+      "exists": true,
+      "sha256": "8f7067ac29f724d6630fb630f059edfe55cc1eb62c6dde038fa94746401b9a5a",
+      "size_bytes": 509543
+    },
+    "data/splits/rlvs_eval.csv": {
+      "exists": true,
+      "sha256": "ef2a4ab87712f2e0ac850390dc2bd94be5fcc85435b1c5d7dc992baefbc4e7a1",
+      "size_bytes": 518626
+    },
+    "data/splits/hockeyfights_eval.csv": {
+      "exists": true,
+      "sha256": "cf812dc5619485ed134b824f60588dabb2a934a80f6f1555a9eb518dea41d930",
+      "size_bytes": 260620
+    },
+    "model_checkpoints/phase6/swin3d_t_rwf2000_paired_views/best.pt": {
+      "path": "/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/model_checkpoints/phase6/swin3d_t_rwf2000_paired_views/best.pt",
+      "exists": true,
+      "sha256": "12dda00974c8b68f96acc6be6b56e6ea4df5b4fe9729f276168f79fa6008c376",
+      "size_bytes": 349191999
+    },
+    "model_checkpoints/phase6/x3d_m_rwf2000_late_fusion/best.pt": {
+      "path": "/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/model_checkpoints/phase6/x3d_m_rwf2000_late_fusion/best.pt",
+      "exists": true,
+      "sha256": "6e0b72e8ca8669d4e2b499f53a08200737fbe6506ed8d7af2e52da6dea3f2115",
+      "size_bytes": 72707661
+    },
+    "model_checkpoints/phase5/x3d_s_rwf2000_late_fusion/best.pt": {
+      "path": "/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/model_checkpoints/phase5/x3d_s_rwf2000_late_fusion/best.pt",
+      "exists": true,
+      "sha256": "0c318705aab89861b5871a83491c19cfa3e72005969578a06874089bca8ac6c8",
+      "size_bytes": 72707917
+    },
+    "yolo11n.pt": {
+      "path": "/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/yolo11n.pt",
+      "exists": true,
+      "sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+      "size_bytes": 5613764
+    },
+    "external:/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/experiments/phase7/calibration/swin3d_t_paired_views/threshold.json": {
+      "path": "/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/experiments/phase7/calibration/swin3d_t_paired_views/threshold.json",
+      "exists": true,
+      "sha256": "adca1fd8ba88e7943749a7b48dbccf464929cbcc057fd037996bf162156ff4db",
+      "size_bytes": 412
+    },
+    "external:/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/experiments/phase7/error_analysis/cross_dataset_metrics.csv": {
+      "path": "/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/experiments/phase7/error_analysis/cross_dataset_metrics.csv",
+      "exists": true,
+      "sha256": "14b2689196e15b3a5acdc050fe838e094204263f5751fdbc57bcf79246e80571",
+      "size_bytes": 1863
+    },
+    "external:/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/experiments/phase6/comparison/model_comparison.csv": {
+      "path": "/home/ayaan-ali-khan/Desktop/Projects/Violence Detection/experiments/phase6/comparison/model_comparison.csv",
+      "exists": true,
+      "sha256": "122aaa732a2cf36edd7f60363eeb99ba66ed199882a60e6f05dcd03e4e0c4ee7",
+      "size_bytes": 519
+    }
+  }
+}
